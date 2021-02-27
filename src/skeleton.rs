@@ -9,6 +9,7 @@ use std::str::FromStr;
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct Skeleton {
     pub manifests: Vec<Manifest>,
+    pub configs: Vec<Manifest>,
     pub lock_file: Option<String>,
 }
 
@@ -87,12 +88,12 @@ impl Skeleton {
                 },
             }
         }
-        let walker2 = GlobWalkerBuilder::new(&base_path, "/**/.cargo/config.toml")
+        let walker = GlobWalkerBuilder::new(&base_path, "/**/.cargo/config.toml")
             .build()
             .context("Failed to scan the files in the current directory.")?;
-        // let mut manifests2 = vec![];
-        for walker in walker2 {
-            match dbg!(walker) {
+        let mut configs = vec![];
+        for config in walker {
+            match dbg!(config) {
                 Ok(manifest) => {
                     let absolute_path = manifest.path().to_path_buf();
                     let contents = fs::read_to_string(&absolute_path)?;
@@ -106,7 +107,7 @@ impl Skeleton {
                                 &absolute_path
                             )
                         })?;
-                    manifests.push(Manifest {
+                    configs.push(Manifest {
                         relative_path,
                         contents,
                     });
@@ -127,6 +128,7 @@ impl Skeleton {
         };
         Ok(Skeleton {
             manifests,
+            configs,
             lock_file,
         })
     }
@@ -242,6 +244,17 @@ impl Skeleton {
                 }
             }
         }
+        
+        for config in &self.configs {
+
+            let config_file_path = base_path.join(&config.relative_path);
+            if let Some(parent_directory) = config_file_path.parent() {
+                fs::create_dir_all(&parent_directory)?;
+            };
+            
+            fs::write(config_file_path, config.contents.as_str())?;
+        }
+
         Ok(())
     }
 
