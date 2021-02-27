@@ -27,7 +27,7 @@ impl Skeleton {
             .context("Failed to scan the files in the current directory.")?;
         let mut manifests = vec![];
         for manifest in walker {
-            match manifest {
+            match dbg!(manifest) {
                 Ok(manifest) => {
                     let absolute_path = manifest.path().to_path_buf();
                     let contents = fs::read_to_string(&absolute_path)?;
@@ -85,6 +85,34 @@ impl Skeleton {
                         return Err(e.into());
                     }
                 },
+            }
+        }
+        let walker2 = GlobWalkerBuilder::new(&base_path, "/**/.cargo/config.toml")
+            .build()
+            .context("Failed to scan the files in the current directory.")?;
+        // let mut manifests2 = vec![];
+        for walker in walker2 {
+            match dbg!(walker) {
+                Ok(manifest) => {
+                    let absolute_path = manifest.path().to_path_buf();
+                    let contents = fs::read_to_string(&absolute_path)?;
+                    // dbg!(absolute_path);
+                    // dbg!(contents);
+
+                    let relative_path = pathdiff::diff_paths(&absolute_path, &base_path)
+                        .ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "Failed to compute relative path of manifest {:?}",
+                                &absolute_path
+                            )
+                        })?;
+                    manifests.push(Manifest {
+                        relative_path,
+                        contents,
+                    });
+                }
+
+                Err(_) => todo!(),
             }
         }
 
