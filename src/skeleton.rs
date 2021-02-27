@@ -9,7 +9,7 @@ use std::str::FromStr;
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct Skeleton {
     pub manifests: Vec<Manifest>,
-    pub configs: Vec<Manifest>,
+    pub config_file: Option<String>,
     pub lock_file: Option<String>,
 }
 
@@ -28,7 +28,7 @@ impl Skeleton {
             .context("Failed to scan the files in the current directory.")?;
         let mut manifests = vec![];
         for manifest in walker {
-            match dbg!(manifest) {
+            match manifest {
                 Ok(manifest) => {
                     let absolute_path = manifest.path().to_path_buf();
                     let contents = fs::read_to_string(&absolute_path)?;
@@ -88,34 +88,19 @@ impl Skeleton {
                 },
             }
         }
-        let walker = GlobWalkerBuilder::new(&base_path, "/**/.cargo/config.toml")
-            .build()
-            .context("Failed to scan the files in the current directory.")?;
-        let mut configs = vec![];
-        for config in walker {
-            match dbg!(config) {
-                Ok(manifest) => {
-                    let absolute_path = manifest.path().to_path_buf();
-                    let contents = fs::read_to_string(&absolute_path)?;
-                    // dbg!(absolute_path);
-                    // dbg!(contents);
 
-                    let relative_path = pathdiff::diff_paths(&absolute_path, &base_path)
-                        .ok_or_else(|| {
-                            anyhow::anyhow!(
-                                "Failed to compute relative path of manifest {:?}",
-                                &absolute_path
-                            )
-                        })?;
-                    configs.push(Manifest {
-                        relative_path,
-                        contents,
-                    });
+        // As we run primarly in Docker, assume to find config.toml at root level.
+        let config_file = match fs::read_to_string(base_path.as_ref().join(".cargo/config.toml")) {
+            Ok(config) => Some(config),
+            Err(e) => {
+                if std::io::ErrorKind::NotFound != e.kind() {
+                    return Err(
+                        anyhow::Error::from(e).context("Failed to read .cargo/config.toml file.")
+                    );
                 }
-
-                Err(_) => todo!(),
+                None
             }
-        }
+        };
 
         let lock_file = match fs::read_to_string(base_path.as_ref().join("Cargo.lock")) {
             Ok(lock) => Some(lock),
@@ -128,7 +113,7 @@ impl Skeleton {
         };
         Ok(Skeleton {
             manifests,
-            configs,
+            config_file,
             lock_file,
         })
     }
@@ -144,6 +129,14 @@ impl Skeleton {
         if let Some(lock_file) = &self.lock_file {
             let lock_file_path = base_path.join("Cargo.lock");
             fs::write(lock_file_path, lock_file.as_str())?;
+        }
+
+        // save config file to disk, if available
+        if let Some(config_file) = &self.config_file {
+            let parent_dir = base_path.join(".cargo");
+            let config_file_path = parent_dir.join("config.toml");
+            fs::create_dir_all(parent_dir)?;
+            fs::write(config_file_path, config_file.as_str())?;
         }
 
         // Save all manifests to disks
@@ -244,17 +237,6 @@ impl Skeleton {
                 }
             }
         }
-        
-        for config in &self.configs {
-
-            let config_file_path = base_path.join(&config.relative_path);
-            if let Some(parent_directory) = config_file_path.parent() {
-                fs::create_dir_all(&parent_directory)?;
-            };
-            
-            fs::write(config_file_path, config.contents.as_str())?;
-        }
-
         Ok(())
     }
 
